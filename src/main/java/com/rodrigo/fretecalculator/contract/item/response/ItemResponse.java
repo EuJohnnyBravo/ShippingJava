@@ -1,4 +1,4 @@
-package com.rodrigo.fretecalculator.contract.shipping.response;
+package com.rodrigo.fretecalculator.contract.item.response;
 
 import java.util.UUID;
 
