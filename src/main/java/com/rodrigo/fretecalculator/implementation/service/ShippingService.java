@@ -23,48 +23,56 @@ public class ShippingService {
     private final ViaCepService viaCepService;
 
     public ShippingResponse createShipping(ShippingRequest payload){
-        //1 - criar objeto Order
-        Order order = new Order();
-        ViaCepResponse viaCep;
-        order.setClientName(payload.clientName());
-        order.setDestination(payload.destination());
-        order.setCreatedAt(new Date());
 
-        //2 - preencher o Item (NÃO salvar no repositório ainda)
-        List<Item> items = payload.items().stream().map(requestItem -> {
-            Item item = new Item();
-            item.setName(requestItem.getName());
-            item.setWeight(requestItem.getWeight());
-            item.setOrder_id(order);// <- faz a ligação bidirecional (Many to one)
-            return item;
-        }).toList();
+        Order order = setOrder(payload);
+        List<Item> items = setItems(payload, order);
 
-        //3 - Calcula o peso total da order
-        double totalWeight = items.stream().mapToDouble(Item::getWeight).sum();
-        if(totalWeight < 0 || totalWeight > 50)
-            throw new InvalidRequestBodyException("Total weight must be between 0Kg and 50Kg");
-        order.setTotalWeight(totalWeight);
+        order.setTotalWeight(calculateWeight(items));
 
-        //4 - Calcula o valor de Frete
-        viaCep = viaCepService.getViaCep(payload.destination());
-
-        double shippingPrice = ShippingByState.calculateShipping(viaCep.uf(), totalWeight);
-        order.setValue(shippingPrice);
-
-        //5 - setar os itens na order
+        ViaCepResponse viaCep = viaCepService.getViaCep(payload.destination());
+        order.setValue(ShippingByState.calculateShipping(viaCep.uf(), order.getTotalWeight()));
         order.setItems(items);
-
-        //6 - Salvar a order (os itens serão salvos juntos via Cascade)
         orderRepository.save(order);
 
+        return createShipping(order, viaCep);
+    }
+
+    private ShippingResponse createShipping(Order order, ViaCepResponse viaCep){
         return new ShippingResponse(
                 order.getId(),
                 order.getClientName(),
                 viaCep.localidade(),
                 viaCep.estado(),
-                totalWeight,
-                shippingPrice,
+                order.getTotalWeight(),
+                order.getValue(),
                 order.getCreatedAt()
         );
+    }
+
+    private Order setOrder(ShippingRequest payload){
+        Order order = new Order();
+        order.setClientName(payload.clientName());
+        order.setDestination(payload.destination());
+        order.setCreatedAt(new Date());
+        return order;
+    }
+
+    private List<Item> setItems(ShippingRequest payload, Order order){
+        return payload.items()
+                .stream()
+                .map(req -> {
+                    Item item = new Item();
+                    item.setName(req.getName());
+                    item.setWeight(req.getWeight());
+                    item.setOrder_id(order);
+                    return item;
+                }).toList();
+    }
+
+    private double calculateWeight(List<Item> items){
+        double weight = items.stream().mapToDouble(Item::getWeight).sum();
+        if(weight < 0 || weight > 50)
+            throw new InvalidRequestBodyException("Total weight must be between 0Kg and 50Kg");
+        return weight;
     }
 }
